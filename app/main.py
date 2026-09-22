@@ -23,6 +23,7 @@ app.add_middleware(
         "http://localhost:5180",
         "https://cricket-connect-fastapi.vercel.app",
     ],
+    allow_origin_regex=r"https://cricket-connect-fastapi-[a-z0-9-]+\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
