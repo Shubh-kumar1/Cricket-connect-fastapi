@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 
@@ -15,6 +16,16 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Cricket Connect API", version="0.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5179",
+        "http://localhost:5180",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(providers.router, prefix="/api/v1")
 app.include_router(venues.router, prefix="/api/v1")
