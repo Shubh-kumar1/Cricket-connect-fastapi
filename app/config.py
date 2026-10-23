@@ -1,7 +1,18 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def resolve_project_path(path: str | Path) -> Path:
+    configured_path = Path(path)
+    if not configured_path.is_absolute():
+        configured_path = PROJECT_ROOT / configured_path
+    return configured_path.resolve()
 
 
 class Settings(BaseSettings):

@@ -54,7 +54,7 @@ Knowledge sources live in `knowledge/`. They must contain verified Cricket Conne
 python -m scripts.ingest_knowledge
 ```
 
-Ingestion chunks Markdown with a 700-character target and 100-character overlap, requests embeddings using `EMBEDDING_MODEL`, and writes a FAISS index plus chunk metadata under `CHAT_INDEX_DIR`. It does not call the chat-generation model. The index is ignored by Git and is not rebuilt during chat requests. Re-run ingestion after changing the embedding model. The index directory must be present on each deployed API instance.
+Ingestion chunks Markdown with a 700-character target and 100-character overlap, requests embeddings using `EMBEDDING_MODEL`, and writes a FAISS index plus chunk metadata under `CHAT_INDEX_DIR`. Relative knowledge and index paths are resolved from the repository root in both the ingestion script and API, independent of the process working directory. It does not call the chat-generation model. The index is ignored by Git and is not rebuilt during chat requests. Re-run ingestion after changing the embedding model. The index directory must be present on each deployed API instance.
 
 The backend uses Google's official `google-genai` SDK. No provider key is sent to the browser. Configure these backend environment variables in `.env` (or the deployment environment):
 
@@ -80,7 +80,7 @@ Validate the key and confirm both configured models are listed as available to t
 python -m scripts.check_gemini
 ```
 
-The check prints model names and sanitized errors only; it never prints the key. After setting one of the accepted key variables, run the check and ingestion command, then start the API as described above. `POST /api/v1/chat` requires an authenticated player or provider account. The request accepts a message up to 2,000 characters and at most eight history entries; the UI does not show the widget on login or registration pages.
+The check prints model names and sanitized errors only; it never prints the key. On Render, configure the same `CHAT_INDEX_DIR` and model settings for the build and runtime environments, include `python -m scripts.ingest_knowledge` in the build command after dependencies are installed, and deploy the resulting index files with the service. Verify `python -m scripts.check_gemini` during deployment troubleshooting; it checks whether the configured API key can access the generation and embedding models. Chat request failures include a sanitized exception class, provider status, and bounded provider detail in the server logs; credentials and authorization values are redacted. `POST /api/v1/chat` requires an authenticated player or provider account. The request accepts a message up to 2,000 characters and at most eight history entries; the UI does not show the widget on login or registration pages.
 
 Chat tests mock paid provider requests and use a temporary SQLite database:
 

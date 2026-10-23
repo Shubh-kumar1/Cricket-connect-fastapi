@@ -1,17 +1,16 @@
 import asyncio
 import json
-from pathlib import Path
 
 import faiss
 import numpy as np
 from fastapi import HTTPException
 
-from app.config import get_settings
+from app.config import get_settings, resolve_project_path
 from app.services.chat import create_embedding, split_document
 
 
 async def ingest_knowledge() -> int:
-    documents_dir = Path("knowledge")
+    documents_dir = resolve_project_path("knowledge")
     documents = sorted(documents_dir.rglob("*.md"))
     if not documents:
         raise RuntimeError("No Markdown documents found in the knowledge directory.")
@@ -34,7 +33,7 @@ async def ingest_knowledge() -> int:
     matrix = np.vstack(embeddings).astype(np.float32)
     index = faiss.IndexFlatIP(matrix.shape[1])
     index.add(matrix)
-    index_path = Path(get_settings().chat_index_dir)
+    index_path = resolve_project_path(get_settings().chat_index_dir)
     index_path.mkdir(parents=True, exist_ok=True)
     faiss.write_index(index, str(index_path / "index.faiss"))
     (index_path / "chunks.json").write_text(

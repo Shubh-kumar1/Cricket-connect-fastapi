@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import math
 import re
 from pathlib import Path
@@ -14,7 +15,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from app.config import Settings, get_gemini_api_key, get_settings
+from app.config import Settings, get_gemini_api_key, get_settings, resolve_project_path
 from app.models.booking import Booking, BookingStatus
 from app.models.provider import ProviderProfile
 from app.models.session import SessionModel
@@ -28,6 +29,41 @@ FALLBACK_ANSWER = (
 )
 MAX_CONTEXT_CHARS = 9000
 MIN_SIMILARITY = 0.25
+logger = logging.getLogger(__name__)
+
+
+_SENSITIVE_ERROR_PATTERNS = (
+    re.compile(r"(?i)\bBearer\s+\S+"),
+    re.compile(r"(?i)\bauthorization\s*[:=]\s*[^,\r\n}\]]+"),
+    re.compile(
+        r"(?i)\b(?:api[_ -]?key|x-goog-api-key|key|access[_ -]?token)\s*[:=]\s*[^,\r\n}\]]+"
+    ),
+    re.compile(r"\bAIza[0-9A-Za-z_-]{20,}\b"),
+)
+
+
+def _safe_error_detail(exc: Exception) -> str:
+    if isinstance(exc, genai_errors.APIError):
+        detail = exc.message or "Gemini returned an API error without a message."
+    else:
+        detail = str(exc)
+
+    configured_key = get_gemini_api_key(get_settings())
+    if configured_key:
+        detail = detail.replace(configured_key, "[REDACTED]")
+    for pattern in _SENSITIVE_ERROR_PATTERNS:
+        detail = pattern.sub("[REDACTED]", detail)
+    return " ".join(detail.split())[:500] or "No provider detail supplied."
+
+
+def _log_gemini_error(exc: Exception) -> None:
+    status_code = exc.code if isinstance(exc, genai_errors.APIError) else None
+    logger.error(
+        "Gemini request failed: exception=%s status=%s detail=%s",
+        type(exc).__name__,
+        status_code,
+        _safe_error_detail(exc),
+    )
 
 
 def split_document(text: str, chunk_size: int = 700, overlap: int = 100) -> list[str]:
@@ -52,7 +88,7 @@ def split_document(text: str, chunk_size: int = 700, overlap: int = 100) -> list
 
 
 def _index_files() -> tuple[Path, Path]:
-    directory = Path(get_settings().chat_index_dir)
+    directory = resolve_project_path(get_settings().chat_index_dir)
     return directory / "index.faiss", directory / "chunks.json"
 
 
@@ -70,6 +106,7 @@ def _gemini_client(settings: Settings):
 
 
 def _raise_gemini_error(exc: Exception) -> None:
+    _log_gemini_error(exc)
     if isinstance(exc, genai_errors.APIError):
         if exc.code in {401, 403}:
             raise HTTPException(

@@ -202,12 +202,21 @@ def test_provider_timeout_is_a_gateway_timeout(monkeypatch):
     assert "Gemini timed out" in error.value.detail
 
 
-def test_provider_rejected_credentials_are_reported_safely(monkeypatch):
+def test_provider_rejected_credentials_are_reported_safely(monkeypatch, caplog):
+    secret = "AIza0123456789abcdefghijklmnop"
+
     class RejectedModels:
         def embed_content(self, **_kwargs):
             raise chat_service.genai_errors.APIError(
                 code=403,
-                response_json={"error": {"message": "private provider details"}},
+                response_json={
+                    "error": {
+                        "message": (
+                            f"private provider details api_key={secret} "
+                            "Authorization: Bearer sensitive-token"
+                        )
+                    }
+                },
             )
 
     class RejectedClient:
@@ -223,6 +232,70 @@ def test_provider_rejected_credentials_are_reported_safely(monkeypatch):
     assert error.value.status_code == 503
     assert "Gemini rejected" in error.value.detail
     assert "private provider details" not in error.value.detail
+    assert "APIError" in caplog.text
+    assert "403" in caplog.text
+    assert "private provider details" in caplog.text
+    assert secret not in caplog.text
+    assert "sensitive-token" not in caplog.text
+
+
+def test_relative_chat_index_path_is_project_root_relative(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        chat_service,
+        "get_settings",
+        lambda: Settings(_env_file=None, chat_index_dir="data/chat_index"),
+    )
+    monkeypatch.chdir(tmp_path)
+
+    index_path, chunks_path = chat_service._index_files()
+
+    project_root = chat_service.resolve_project_path(".")
+    assert index_path == project_root / "data" / "chat_index" / "index.faiss"
+    assert chunks_path == project_root / "data" / "chat_index" / "chunks.json"
+
+
+def test_default_gemini_models_match_supported_api_actions():
+    settings = Settings(_env_file=None)
+
+    assert settings.llm_model == "gemini-2.5-flash"
+    assert settings.embedding_model == "gemini-embedding-001"
+
+
+def test_gemini_calls_match_google_genai_sdk_request_format(monkeypatch):
+    settings = Settings(_env_file=None, gemini_api_key="test-key")
+    captured: dict[str, dict[str, object]] = {}
+
+    class Models:
+        def generate_content(self, **kwargs):
+            captured["generation"] = kwargs
+            return SimpleNamespace(text="Grounded answer")
+
+        def embed_content(self, **kwargs):
+            captured["embedding"] = kwargs
+            return SimpleNamespace(embeddings=[SimpleNamespace(values=[1.0, 2.0])])
+
+    class FakeClient:
+        models = Models()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(chat_service, "_gemini_client", lambda _settings: FakeClient())
+
+    response = chat_service._generate_content(settings, "Question", "System instruction")
+    embedding = chat_service._embedding_values("Chunk text")
+
+    generation_request = captured["generation"]
+    assert generation_request["model"] == "gemini-2.5-flash"
+    assert generation_request["contents"] == "Question"
+    assert isinstance(generation_request["config"], chat_service.genai_types.GenerateContentConfig)
+    assert generation_request["config"].system_instruction == "System instruction"
+    assert response.text == "Grounded answer"
+
+    embedding_request = captured["embedding"]
+    assert embedding_request["model"] == "gemini-embedding-001"
+    assert embedding_request["contents"] == "Chunk text"
+    assert np.allclose(embedding, [1 / np.sqrt(5), 2 / np.sqrt(5)])
 
 
 def test_gemini_key_variable_precedence_and_legacy_compatibility():
