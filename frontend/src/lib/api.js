@@ -2,8 +2,12 @@ import axios from 'axios'
 
 const TOKEN_KEY = 'cricket_connect_token'
 const USER_KEY = 'cricket_connect_user'
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, '')
+const apiBaseUrl = configuredApiUrl
+  ? (configuredApiUrl.endsWith('/api/v1') ? configuredApiUrl : `${configuredApiUrl}/api/v1`)
+  : '/api/v1'
 const client = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api/v1',
+  baseURL: apiBaseUrl,
   headers: { 'Content-Type': 'application/json' },
 })
 const getStoredToken = () => {
@@ -60,6 +64,7 @@ export const api = {
 export const authApi = {
   login: credentials => request('/auth/login', { method: 'POST', data: credentials }),
   register: details => request('/auth/register', { method: 'POST', data: details }),
+  me: () => request('/auth/me'),
 }
 export function setStoredAuth(result) {
   if (!result) {
@@ -68,8 +73,13 @@ export function setStoredAuth(result) {
     return
   }
   const token = result.access_token || result.token || result.data?.access_token
-  const user = result.user || result.data?.user || result
-  if (token) localStorage.setItem(TOKEN_KEY, String(token).replace(/^Bearer\s+/i, ''))
-  if (user) localStorage.setItem(USER_KEY, JSON.stringify(user))
+  if (!token) {
+    setStoredAuth(null)
+    return
+  }
+  localStorage.setItem(TOKEN_KEY, String(token).replace(/^Bearer\s+/i, ''))
+  localStorage.removeItem(USER_KEY)
 }
+export function setStoredUser(user) { localStorage.setItem(USER_KEY, JSON.stringify(user)) }
+export function hasStoredToken() { return Boolean(getStoredToken()) }
 export function getStoredUser() { try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null') } catch { return null } }

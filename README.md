@@ -44,6 +44,10 @@ uvicorn app.main:app --reload
 
 Interactive API documentation is available at `http://127.0.0.1:8000/docs`.
 
+## Frontend deployment
+
+Set the Vercel build environment variable `VITE_API_URL` to the Render API origin, for example `https://<your-render-service>.onrender.com`. The frontend appends `/api/v1` automatically. Without this setting, production builds use the same-origin `/api/v1` path, which only works locally through the Vite development proxy. Keep the deployed frontend origin in the API CORS allowlist in `app/main.py`.
+
 ## Tests
 
 ```powershell
