@@ -5,6 +5,7 @@ import {
   MapPin, Menu, Search, ShieldCheck, Trophy, UserRound, Users, X, Zap,
 } from 'lucide-react'
 import { api, authApi, getStoredUser, hasStoredToken, setStoredAuth, setStoredUser } from './lib/api'
+import ChatWidget from './components/ChatWidget'
 import './index.css'
 
 const fallbackSessions = [
@@ -24,6 +25,7 @@ const venueImages = [
 function Layout({ children }) {
   const [open, setOpen] = useState(false)
   const user = getStoredUser()
+  const location = useLocation()
   const navigate = useNavigate()
   const logout = () => { setStoredAuth(null); navigate('/') }
   return <div className="min-h-screen bg-slate-50">
@@ -40,6 +42,7 @@ function Layout({ children }) {
       {open && <div className="border-t border-slate-100 bg-white px-5 py-4 md:hidden"><div className="grid gap-1"><MobileNav to="/" onClick={() => setOpen(false)}>Home</MobileNav><MobileNav to="/sessions" onClick={() => setOpen(false)}>Find Sessions</MobileNav><MobileNav to="/venues" onClick={() => setOpen(false)}>Venues</MobileNav><MobileNav to="/bookings" onClick={() => setOpen(false)}>My Bookings</MobileNav><MobileNav to={user ? '/dashboard' : '/login'} onClick={() => setOpen(false)}>{user ? 'Dashboard' : 'Log in'}</MobileNav></div></div>}
     </header>
     {children}
+    {hasStoredToken() && !['/login', '/register'].includes(location.pathname) && <ChatWidget />}
     <footer className="border-t border-slate-200 bg-white"><div className="mx-auto flex max-w-7xl flex-col gap-4 px-5 py-8 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between lg:px-8"><div>© 2026 CricketConnect. Built for local cricket communities.</div><div className="flex gap-5"><Link to="/sessions" className="hover:text-slate-900">Sessions</Link><Link to="/venues" className="hover:text-slate-900">Venues</Link><Link to="/register" className="hover:text-slate-900">Join</Link></div></div></footer>
   </div>
 }

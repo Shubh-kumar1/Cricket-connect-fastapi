@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,7 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import OperationalError
 
 from app.database import Base, engine
-from app.routers import auth, bookings, providers, sessions, venues
+from app.routers import auth, bookings, chat, providers, sessions, venues
 
 
 @asynccontextmanager
@@ -33,10 +34,20 @@ app.include_router(providers.router, prefix="/api/v1")
 app.include_router(venues.router, prefix="/api/v1")
 app.include_router(sessions.router, prefix="/api/v1")
 app.include_router(bookings.router, prefix="/api/v1")
+app.include_router(chat.router, prefix="/api/v1")
+
+logger = logging.getLogger(__name__)
 
 
 @app.exception_handler(OperationalError)
-async def database_unavailable(_: object, __: OperationalError) -> JSONResponse:
+async def database_unavailable(_: object, exc: OperationalError) -> JSONResponse:
+    original = exc.orig
+    sqlstate = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
+    logger.error(
+        "Database request failed: %s (SQLSTATE: %s)",
+        type(original).__name__,
+        sqlstate or "unavailable",
+    )
     return JSONResponse(
         status_code=503,
         content={"detail": "Database is temporarily unavailable"},

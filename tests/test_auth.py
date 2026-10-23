@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -104,3 +105,34 @@ def test_current_user_rejects_invalid_token(auth_client):
         headers={"Authorization": "Bearer invalid-token"},
     )
     assert response.status_code == 401
+
+
+def test_login_database_failure_is_safe_and_logged(caplog):
+    previous_overrides = app.dependency_overrides.copy()
+
+    def unavailable_db():
+        raise OperationalError(
+            "database query failed",
+            {},
+            ConnectionRefusedError("connection refused"),
+        )
+
+    app.dependency_overrides[get_db] = unavailable_db
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/auth/login",
+                json={
+                    "email": "database-probe@example.com",
+                    "password": "safe-probe-only",
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(previous_overrides)
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Database is temporarily unavailable"}
+    assert "Database request failed: ConnectionRefusedError" in caplog.text
+    assert "safe-probe-only" not in caplog.text
+    assert "database-probe@example.com" not in caplog.text

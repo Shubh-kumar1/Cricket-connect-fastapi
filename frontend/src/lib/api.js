@@ -60,6 +60,7 @@ export const api = {
   venue: id => request(`/venues/${id}`),
   bookings: () => request('/bookings/mine').then(list),
   createBooking: sessionId => request('/bookings', { method: 'POST', data: { session_id: sessionId } }),
+  chat: payload => request('/chat', { method: 'POST', data: payload }),
 }
 export const authApi = {
   login: credentials => request('/auth/login', { method: 'POST', data: credentials }),

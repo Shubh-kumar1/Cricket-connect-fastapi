@@ -11,3 +11,6 @@ python-multipart==0.0.20
 email-validator==2.2.0
 pytest==8.3.4
 httpx==0.28.1
+faiss-cpu>=1.12.0,<2
+numpy>=1.26,<3
+google-genai>=1.30.0,<2

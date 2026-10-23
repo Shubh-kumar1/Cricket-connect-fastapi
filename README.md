@@ -44,6 +44,52 @@ uvicorn app.main:app --reload
 
 Interactive API documentation is available at `http://127.0.0.1:8000/docs`.
 
+## AI assistant and RAG
+
+The authenticated React chat widget calls `POST /api/v1/chat` using the existing bearer token. The FastAPI service retrieves relevant Markdown chunks from a persisted FAISS cosine-similarity index, adds current public session or venue records directly from PostgreSQL when relevant, and uses Google's Gemini API to answer only from that context. Responses contain source references. Unsupported questions receive a fixed fallback instead of an ungrounded answer. The assistant does not retrieve individual bookings or user profiles and cannot create or modify bookings.
+
+Knowledge sources live in `knowledge/`. They must contain verified Cricket Connect guidance; retrieved text is treated as reference data, not instructions. Rebuild the index after adding or editing documents:
+
+```bash
+python -m scripts.ingest_knowledge
+```
+
+Ingestion chunks Markdown with a 700-character target and 100-character overlap, requests embeddings using `EMBEDDING_MODEL`, and writes a FAISS index plus chunk metadata under `CHAT_INDEX_DIR`. It does not call the chat-generation model. The index is ignored by Git and is not rebuilt during chat requests. Re-run ingestion after changing the embedding model. The index directory must be present on each deployed API instance.
+
+The backend uses Google's official `google-genai` SDK. No provider key is sent to the browser. Configure these backend environment variables in `.env` (or the deployment environment):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GEMINI_API_KEY` | empty | Google AI Studio key; preferred credential variable |
+| `GOOGLE_API_KEY` | empty | Also accepted as a Google key variable |
+| `LLM_API_KEY` | empty | Legacy fallback so existing deployments can keep their key name |
+| `LLM_MODEL` | `gemini-2.5-flash` | Gemini generation model, used only for chat |
+| `EMBEDDING_MODEL` | `gemini-embedding-001` | Gemini embedding model, used by ingestion and chat retrieval |
+| `LLM_TIMEOUT_SECONDS` | `20` | Gemini request timeout |
+| `CHAT_INDEX_DIR` | `data/chat_index` | Persisted FAISS index and metadata directory |
+
+Install the additional RAG dependencies through the existing requirements file:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+Validate the key and confirm both configured models are listed as available to the API account:
+
+```bash
+python -m scripts.check_gemini
+```
+
+The check prints model names and sanitized errors only; it never prints the key. After setting one of the accepted key variables, run the check and ingestion command, then start the API as described above. `POST /api/v1/chat` requires an authenticated player or provider account. The request accepts a message up to 2,000 characters and at most eight history entries; the UI does not show the widget on login or registration pages.
+
+Chat tests mock paid provider requests and use a temporary SQLite database:
+
+```bash
+pytest tests/test_chat.py
+```
+
+Known limitations: generation and embeddings require a configured Google AI Studio/Gemini API key; only currently stored platform facts are indexed; venue facilities and prices are not in the database and therefore cannot be answered; the initial live-data intent detection is keyword-based; model availability and deployment persistence must be configured by the operator.
+
 ## Frontend deployment
 
 Set the Vercel build environment variable `VITE_API_URL` to the Render API origin, for example `https://<your-render-service>.onrender.com`. The frontend appends `/api/v1` automatically. Without this setting, production builds use the same-origin `/api/v1` path, which only works locally through the Vite development proxy. Keep the deployed frontend origin in the API CORS allowlist in `app/main.py`.
@@ -54,7 +100,29 @@ Set the Vercel build environment variable `VITE_API_URL` to the Render API origi
 pytest
 ```
 
-`tests/test_booking_concurrency.py` is an integration test and runs when `DATABASE_URL` points to PostgreSQL. It starts concurrent transactions against a capacity-one session and verifies only one active booking succeeds. The health and password tests run without a database connection.
+`tests/test_booking_concurrency.py` is an integration test using PostgreSQL row locks. It requires a dedicated database named `cricket_connect_test`; it does not use `DATABASE_URL`, skip when PostgreSQL is unavailable, or delete shared records. Each run creates and removes only its own randomly named schema inside that test database.
+
+Start the isolated test PostgreSQL service and run the concurrency test:
+
+```bash
+docker compose -p cricket-connect-tests -f compose.test.yaml up -d --wait
+TEST_DATABASE_URL=postgresql+psycopg://cricket_test:cricket_test@localhost:55432/cricket_connect_test \
+  pytest tests/test_booking_concurrency.py::test_concurrent_bookings_never_exceed_capacity
+```
+
+Run the full test suite against the same isolated service:
+
+```bash
+TEST_DATABASE_URL=postgresql+psycopg://cricket_test:cricket_test@localhost:55432/cricket_connect_test pytest
+```
+
+When finished, stop the service without removing its data volume:
+
+```bash
+docker compose -p cricket-connect-tests -f compose.test.yaml down
+```
+
+The health and password tests run without a database connection.
 
 ## Database relationships
 
@@ -81,6 +149,7 @@ pytest
 | GET | `/api/v1/sessions/search?sport=Cricket&city=Delhi` | Authenticated |
 | POST/GET | `/api/v1/bookings`, `/api/v1/bookings/mine` | Player |
 | GET/PATCH | `/api/v1/bookings/provider`, `/api/v1/bookings/{booking_id}` | Provider |
+| POST | `/api/v1/chat` | Authenticated |
 
 ## Authentication
 
