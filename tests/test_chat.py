@@ -257,8 +257,14 @@ def test_relative_chat_index_path_is_project_root_relative(monkeypatch, tmp_path
 def test_default_gemini_models_match_supported_api_actions():
     settings = Settings(_env_file=None)
 
-    assert settings.llm_model == "gemini-2.5-flash"
+    assert settings.llm_model == "gemini-3.1-flash-lite"
     assert settings.embedding_model == "gemini-embedding-001"
+
+
+def test_legacy_llm_model_is_replaced_with_supported_default():
+    settings = Settings(_env_file=None, llm_model="gemini-2.5-flash")
+
+    assert settings.llm_model == "gemini-3.1-flash-lite"
 
 
 def test_gemini_calls_match_google_genai_sdk_request_format(monkeypatch):
@@ -286,7 +292,7 @@ def test_gemini_calls_match_google_genai_sdk_request_format(monkeypatch):
     embedding = chat_service._embedding_values("Chunk text")
 
     generation_request = captured["generation"]
-    assert generation_request["model"] == "gemini-2.5-flash"
+    assert generation_request["model"] == "gemini-3.1-flash-lite"
     assert generation_request["contents"] == "Question"
     assert isinstance(generation_request["config"], chat_service.genai_types.GenerateContentConfig)
     assert generation_request["config"].system_instruction == "System instruction"

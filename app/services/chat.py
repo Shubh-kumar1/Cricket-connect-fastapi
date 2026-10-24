@@ -29,6 +29,11 @@ FALLBACK_ANSWER = (
 )
 MAX_CONTEXT_CHARS = 9000
 MIN_SIMILARITY = 0.25
+FALLBACK_LLM_MODELS = (
+    "gemini-3.1-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-3-flash-preview",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -172,19 +177,50 @@ def _embedding_values(text: str) -> np.ndarray:
     return embedding / norm
 
 
+def _llm_model_candidates(settings: Settings) -> list[str]:
+    configured = (settings.llm_model or "").strip()
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for model_name in (configured, *FALLBACK_LLM_MODELS):
+        normalized = model_name.strip()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            candidates.append(normalized)
+    return candidates
+
+
+def _should_retry_with_fallback(exc: Exception) -> bool:
+    return isinstance(exc, genai_errors.APIError) and exc.code in {400, 404, 503}
+
+
 def _generate_content(settings: Settings, prompt: str, system_instruction: str):
     client = _gemini_client(settings)
+    last_error: Exception | None = None
     try:
-        return client.models.generate_content(
-            model=settings.llm_model,
-            contents=prompt,
-            config=genai_types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=0.2,
-            ),
+        for model_name in _llm_model_candidates(settings):
+            try:
+                return client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=genai_types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        temperature=0.2,
+                    ),
+                )
+            except (genai_errors.APIError, httpx.TimeoutException, httpx.RequestError) as exc:
+                last_error = exc
+                if not _should_retry_with_fallback(exc):
+                    _raise_gemini_error(exc)
+                logger.warning(
+                    "Gemini model %s rejected the request; retrying with a supported fallback model.",
+                    model_name,
+                )
+        if last_error is not None:
+            _raise_gemini_error(last_error)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Gemini returned no response.",
         )
-    except (genai_errors.APIError, httpx.TimeoutException, httpx.RequestError) as exc:
-        _raise_gemini_error(exc)
     finally:
         client.close()
 
